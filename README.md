@@ -32,8 +32,14 @@ This is built to recreate the practical **AnimaEngine-style GIF playing feature*
 4. Put your animation file here:
 
    ```text
-   animations/diane.gif
+   animations/
    ```
+and Name it
+
+```text
+animation.gif
+```
+if you have any other format like an png use animation.your_format
 
    The file can be a real GIF, a PNG, or a folder of frames. If you use a different name, update `animation_config.json`.
 
@@ -42,6 +48,12 @@ This is built to recreate the practical **AnimaEngine-style GIF playing feature*
    ```text
    run_borderless_animation.bat
    ```
+
+OR you can just use 
+
+```text
+python ./borderless_animation_player.py
+```
 
 ## Configure
 

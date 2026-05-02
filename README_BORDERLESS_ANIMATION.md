@@ -2,18 +2,33 @@
 
 This runs your own animation as a transparent, borderless desktop widget.
 
+you can basicaley replicate that one feature of animaengine where you can have animations running on your desktop
+
 ## Quick Start
 
-1. Put your animation here:
+1. Put your gif animation here:
 
 ```text
-animations/diane.gif
+animations/
 ```
 
-2. Double-click:
+2. Name it
+
+```text
+animation.gif
+```
+if you have any other format like an png use animation.your_format
+
+3. Double-click:
 
 ```text
 run_borderless_animation.bat
+```
+
+OR you can just use 
+
+```text
+python ./borderless_animation_player.py
 ```
 
 ## Supported Inputs
@@ -66,3 +81,9 @@ For animations without alpha, set the background color in your frames to the sam
 Set `"click_through": true` if you want mouse clicks to pass through the animation.
 
 Important: when click-through is enabled, you cannot drag or right-click the widget. Use Escape while it is focused, Task Manager, or set it back to false in the config before launching again.
+
+## Setup auto start up
+
+This app is still under development I will add the auto start up feature once I have all the feature that I want .
+
+for now you can just use windows features to setup an auto startup for this it won't be perfect but it will do the job .

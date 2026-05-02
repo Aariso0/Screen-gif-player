@@ -1,0 +1,20 @@
+{
+  "_comment_animation": "Path to a GIF, PNG, or folder of numbered frames. Relative paths start from this project folder.",
+  "animation": "animations/animation.gif",
+  "_comment_frame_delay_ms": "Delay between frames. Lower numbers play faster.",
+  "frame_delay_ms": 80,
+  "_comment_scale": "Raw multiplier used only when screen_percent is null.",
+  "scale": 1.0,
+  "_comment_screen_percent": "Preferred size as a percentage of the smaller side of your screen. Try 25, 20, 15, 10, or 5.",
+  "screen_percent": 15,
+  "_comment_transparent_color": "Any pixel with this exact color becomes invisible. Useful for non-alpha images.",
+  "transparent_color": "#010203",
+  "_comment_always_on_top": "Keeps the animation above other windows.",
+  "always_on_top": true,
+  "_comment_click_through": "When true, mouse clicks pass through the widget, but you cannot drag or right-click it.",
+  "click_through": false,
+  "_comment_start_x": "Initial horizontal screen position in pixels.",
+  "start_x": 120,
+  "_comment_start_y": "Initial vertical screen position in pixels.",
+  "start_y": 120
+}

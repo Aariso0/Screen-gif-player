@@ -1,0 +1,24 @@
+# Python runtime clutter.
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Local OS/editor files.
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# User-provided animations can be large or copyrighted, so keep only the folder placeholder.
+animations/*
+!animations/.gitkeep
+
+# Diane-specific prototype/widget files are not part of the generic borderless app.
+diane_ram_widget.py
+run_diane_ram_widget.bat
+README_DIANE_RAM_WIDGET.md
+
+# Earlier web prototype files are not part of the generic borderless app.
+index.html
+styles.css
+app.js

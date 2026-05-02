@@ -8,7 +8,7 @@
   "_comment_screen_percent": "Preferred size as a percentage of the smaller side of your screen. Try 25, 20, 15, 10, or 5.",
   "screen_percent": 15,
   "_comment_transparent_color": "Any pixel with this exact color becomes invisible. Useful for non-alpha images.",
-  "transparent_color": "#010203",
+  "transparent_color": "#FCFCFC",
   "_comment_always_on_top": "Keeps the animation above other windows.",
   "always_on_top": true,
   "_comment_click_through": "When true, mouse clicks pass through the widget, but you cannot drag or right-click it.",

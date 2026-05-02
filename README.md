@@ -49,7 +49,9 @@ if you have any other format like an png use animation.your_format
    run_borderless_animation.bat
    ```
 
-OR you can just use 
+IF you use .bat file you can freeley drag your gif out of the black window.
+
+If you don't want the black window open terminal to the git folder location and then run
 
 ```text
 python ./borderless_animation_player.py

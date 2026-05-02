@@ -1,6 +1,7 @@
 import ctypes
 import json
 import tkinter as tk
+from dataclasses import dataclass
 from pathlib import Path
 
 
@@ -19,6 +20,13 @@ IMAGE_EXTENSIONS = {".gif", ".png", ".ppm", ".pgm"}
 GWL_EXSTYLE = -20
 WS_EX_LAYERED = 0x00080000
 WS_EX_TRANSPARENT = 0x00000020
+
+
+# A prepared display frame plus the delay read from the GIF metadata.
+@dataclass
+class AnimationFrame:
+    image: tk.PhotoImage
+    delay_ms: int
 
 
 def load_config():
@@ -74,8 +82,12 @@ class BorderlessAnimationPlayer:
         self.delay = int(self.config.get("frame_delay_ms", 80))
         self.frames = []
         self.frame_index = 0
+        # Tk's after() returns an id; keep it so reload/resize cannot stack timers.
+        self.after_id = None
         self.paused = False
         self.drag = None
+        # Tk images disappear if Python releases the last reference.
+        self.current_scaled = None
 
         # Create a borderless Tk window. The transparent color makes the background vanish.
         self.root = tk.Tk()
@@ -142,6 +154,8 @@ class BorderlessAnimationPlayer:
             asset = first_animation_in_folder(APP_DIR / "animations")
         self.frames = self.load_frames(asset)
         self.frame_index = 0
+        # Stop the previous animation loop before starting one for the new frames.
+        self.cancel_playback_timer()
 
         x = int(self.config.get("start_x", self.root.winfo_x()))
         y = int(self.config.get("start_y", self.root.winfo_y()))
@@ -157,27 +171,165 @@ class BorderlessAnimationPlayer:
             return []
         if asset.is_dir():
             files = sorted(path for path in asset.iterdir() if path.suffix.lower() in IMAGE_EXTENSIONS)
-            return [tk.PhotoImage(file=str(path)) for path in files]
+            return [
+                AnimationFrame(tk.PhotoImage(file=str(path)), self.delay)
+                for path in files
+            ]
         image_type = sniff_image_type(asset)
         if image_type == "gif":
             return self.load_gif(asset)
         if image_type in {"png", "ppm", "pgm"} and asset.exists():
-            return [tk.PhotoImage(file=str(asset))]
+            return [AnimationFrame(tk.PhotoImage(file=str(asset)), self.delay)]
         if asset.suffix.lower() in IMAGE_EXTENSIONS and asset.exists():
-            return [tk.PhotoImage(file=str(asset))]
+            return [AnimationFrame(tk.PhotoImage(file=str(asset)), self.delay)]
         return []
 
     def load_gif(self, path):
-        """Read every frame from an animated GIF until Tk reports no more frames."""
+        """Load GIF frames as full logical-screen images, including partial update frames."""
+        # GIFs often store later frames as smaller transparent patches with offsets.
+        # Tk can expose those patches as frames, so we parse the missing metadata ourselves.
+        metadata = self.read_gif_metadata(path)
+        logical_width = metadata.get("width", 0)
+        logical_height = metadata.get("height", 0)
+        frame_metadata = metadata.get("frames", [])
+        canvas = None
+        if logical_width and logical_height:
+            # This canvas represents the complete visible frame from the previous step.
+            canvas = tk.PhotoImage(width=logical_width, height=logical_height)
+
         frames = []
         index = 0
         while True:
             try:
-                frames.append(tk.PhotoImage(file=str(path), format=f"gif -index {index}"))
-                index += 1
+                raw = tk.PhotoImage(file=str(path), format=f"gif -index {index}")
             except tk.TclError:
                 break
+
+            info = frame_metadata[index] if index < len(frame_metadata) else {}
+            delay_ms = max(1, int(info.get("delay_ms") or self.delay))
+            if canvas:
+                # Always composite onto the previous full frame. Some Tk versions report
+                # partial GIF patches as full-size transparent images, which causes glitches.
+                frame = canvas.copy()
+                if raw.width() == logical_width and raw.height() == logical_height:
+                    left = 0
+                    top = 0
+                else:
+                    left = int(info.get("left", 0))
+                    top = int(info.get("top", 0))
+                self.copy_photo(raw, frame, left, top)
+            else:
+                frame = raw
+
+            frames.append(AnimationFrame(frame, delay_ms))
+
+            if canvas:
+                disposal = int(info.get("disposal", 0))
+                if disposal == 2:
+                    # Disposal mode 2 clears this frame's rectangle before the next frame.
+                    canvas = frame.copy()
+                    left = int(info.get("left", 0))
+                    top = int(info.get("top", 0))
+                    width = int(info.get("width", raw.width()))
+                    height = int(info.get("height", raw.height()))
+                    blank = tk.PhotoImage(width=max(1, width), height=max(1, height))
+                    self.copy_photo(blank, canvas, left, top)
+                elif disposal == 3:
+                    # Disposal mode 3 restores the previous canvas, so leave it unchanged.
+                    pass
+                else:
+                    canvas = frame.copy()
+
+            index += 1
         return frames
+
+    def read_gif_metadata(self, path):
+        """Read logical size, frame rectangles, delays, and disposal modes from a GIF."""
+        try:
+            data = path.read_bytes()
+        except OSError:
+            return {"frames": []}
+        if len(data) < 13 or data[:3] != b"GIF":
+            return {"frames": []}
+
+        width = int.from_bytes(data[6:8], "little")
+        height = int.from_bytes(data[8:10], "little")
+        packed = data[10]
+        offset = 13
+        if packed & 0x80:
+            offset += 3 * (2 ** ((packed & 0x07) + 1))
+
+        def skip_blocks(position):
+            while position < len(data):
+                block_size = data[position]
+                position += 1
+                if block_size == 0:
+                    return position
+                position += block_size
+            return position
+
+        frames = []
+        graphics_control = {}
+        while offset < len(data):
+            marker = data[offset]
+            offset += 1
+            if marker == 0x21:
+                label = data[offset]
+                offset += 1
+                if label == 0xF9 and offset + 5 < len(data):
+                    block_size = data[offset]
+                    offset += 1
+                    if block_size == 4:
+                        flags = data[offset]
+                        delay = int.from_bytes(data[offset + 1:offset + 3], "little")
+                        graphics_control = {
+                            "disposal": (flags >> 2) & 0x07,
+                            "delay_ms": delay * 10 if delay else self.delay,
+                        }
+                    offset += block_size + 1
+                else:
+                    offset = skip_blocks(offset)
+            elif marker == 0x2C and offset + 9 <= len(data):
+                left = int.from_bytes(data[offset:offset + 2], "little")
+                top = int.from_bytes(data[offset + 2:offset + 4], "little")
+                frame_width = int.from_bytes(data[offset + 4:offset + 6], "little")
+                frame_height = int.from_bytes(data[offset + 6:offset + 8], "little")
+                image_flags = data[offset + 8]
+                offset += 9
+                if image_flags & 0x80:
+                    offset += 3 * (2 ** ((image_flags & 0x07) + 1))
+                offset += 1
+                offset = skip_blocks(offset)
+                frames.append({
+                    "left": left,
+                    "top": top,
+                    "width": frame_width,
+                    "height": frame_height,
+                    **graphics_control,
+                })
+                graphics_control = {}
+            elif marker == 0x3B:
+                break
+            else:
+                break
+        return {"width": width, "height": height, "frames": frames}
+
+    def copy_photo(self, source, destination, x, y):
+        """Copy one PhotoImage onto another while preserving transparency."""
+        try:
+            # Overlay keeps transparent pixels from wiping out the previous full frame.
+            destination.tk.call(
+                destination,
+                "copy",
+                source,
+                "-to",
+                x,
+                y,
+                "-compositingrule",
+                "overlay",
+            )
+        except tk.TclError:
+            destination.tk.call(destination, "copy", source, "-to", x, y)
 
     def scaled_frame(self, frame):
         """Return a display-sized frame using Tk's built-in integer scaling."""
@@ -205,7 +357,7 @@ class BorderlessAnimationPlayer:
 
     def resize_window(self, x=None, y=None):
         """Resize the borderless window to exactly fit the current animation frame."""
-        frame = self.scaled_frame(self.frames[0])
+        frame = self.scaled_frame(self.frames[0].image)
         self.current_scaled = frame
         width = frame.width()
         height = frame.height()
@@ -217,15 +369,32 @@ class BorderlessAnimationPlayer:
 
     def show_current_frame(self):
         """Display one frame, advance the index, then schedule the next frame."""
+        self.cancel_playback_timer()
         if not self.frames:
             return
-        frame = self.scaled_frame(self.frames[self.frame_index])
+        animation_frame = self.frames[self.frame_index]
+        frame = self.scaled_frame(animation_frame.image)
         self.current_scaled = frame
         self.label.configure(image=frame, text="")
         self.root.geometry(f"{frame.width()}x{frame.height()}+{self.root.winfo_x()}+{self.root.winfo_y()}")
         if not self.paused:
             self.frame_index = (self.frame_index + 1) % len(self.frames)
-        self.root.after(self.delay, self.show_current_frame)
+        self.schedule_next_frame(animation_frame.delay_ms)
+
+    def schedule_next_frame(self, delay_ms=None):
+        """Schedule exactly one playback callback so speed stays stable."""
+        self.cancel_playback_timer()
+        self.after_id = self.root.after(max(1, int(delay_ms or self.delay)), self.show_current_frame)
+
+    def cancel_playback_timer(self):
+        """Cancel any queued playback callback before starting a new one."""
+        if self.after_id is None:
+            return
+        try:
+            self.root.after_cancel(self.after_id)
+        except tk.TclError:
+            pass
+        self.after_id = None
 
     def show_missing_animation(self, x, y):
         """Show a small help message when no usable animation file can be found."""
